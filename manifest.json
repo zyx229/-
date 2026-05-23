@@ -1,0 +1,10 @@
+{
+    "name": "Service",
+    "short_name": "Service",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#ffffff",
+    "permissions": ["geolocation"],
+    "icons": []
+}
